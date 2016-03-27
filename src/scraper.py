@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import sys
 import io
+import re
 
 """HID is Heath Inspection Data"""
 HID_DOMAIN = 'http://info.kingcounty.gov'
@@ -38,10 +39,6 @@ def write_file(text, filename):
     with io.open(filename, 'wb') as f:
         f.write(data)
 
-# def write_to_HID_page(filename, **kwargs):
-#     text, encoding = get_inspection_page(**kwargs)
-#     write_file(text, filename)
-
 def load_HID_page(filename):
     with io.open(filename, 'rb') as data:
         encoded_data = data.read()
@@ -51,7 +48,9 @@ def parse_source(html, encoding='utf-8'):
     parsed_data = BeautifulSoup(html, 'html5lib', from_encoding=encoding)
     return parsed_data
 
-
+def extract_data_listings(html):
+    id_finder = re.compile(r'PR[\d]+~')
+    return html.find_all('div', id=id_finder)
 
 
 if __name__ == '__main__':
@@ -65,4 +64,6 @@ if __name__ == '__main__':
     else:
         data, encoding = get_HID_page(**kwargs)
     doc = parse_source(data, encoding)
-    print doc.prettify(encoding=encoding)
+    listings = extract_data_listings(doc)
+    print len(listings)
+    print listings[1].prettify()

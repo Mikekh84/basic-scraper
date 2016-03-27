@@ -58,6 +58,58 @@ def has_two_tds(el):
     has_two = len(td_childern) == 2
     return is_tr and has_two
 
+def clean_data(td):
+    data = td.string
+    try:
+        return data.strip('\n:-')
+    except AttributeError:
+        return u''
+
+def extract_restaurant_metadata(el):
+    metadata_rows = el.find('tbody').find_all(
+        has_two_tds, recursive=False)
+    rdata = {}
+    current_label = ''
+    for row in metadata_rows:
+        key_cell, val_cell = row.find_all('td', recursive=False)
+        new_label = clean_data(key_cell)
+        current_label = new_label if new_label else current_label
+        rdata.setdefault(current_label, []).append(clean_data(val_cell))
+    return rdata
+
+def is_inspection_row(el):
+    is_tr = el.name == 'tr'
+    if not is_tr:
+        return False
+    td_childern = el.find_all('td', recursive=False)
+    has_four = len(td_childern) == 4
+    this_text = clean_data(td_childern[0]).lower()
+    contains_word = 'inspection' in this_text
+    does_not_start = not this_text.startswith('inspection')
+    return is_tr and has_four and contains_word and does_not_start
+
+def extract_score_data(el):
+    inspection_rows = el.find_all(is_inspection_row)
+    samples = len(inspection_rows)
+    total = high_score = average = 0
+    for row in inspection_rows:
+        strval = clean_data(row.find_all('td')[2])
+        try:
+            intval = int(strval)
+        except (ValueError, TypeError):
+            samples -= 1
+        else:
+            total += intval
+            high_score = intval if intval > high_score else high_score
+    if samples:
+        average = total/float(samples)
+    data = {
+        u'Average Score': average,
+        u'High Score': high_score,
+        u'Total Inspections': samples,
+    }
+    return data
+
 if __name__ == '__main__':
     kwargs = {
     'Inspection_Start': '3/3/2013',
@@ -71,6 +123,8 @@ if __name__ == '__main__':
     doc = parse_source(data, encoding)
     listings = extract_data_listings(doc)
     for listing in listings:
-        metadata_rows = listing.find('tbody').find_all(
-            has_two_tds, recursive=False)
-        print len(metadata_rows)
+      metadata = extract_restaurant_metadata(listing)
+      inspection_rows = listing.find_all(is_inspection_row)
+      score_data = extract_score_data(listing)
+      for key, val in score_data.items():
+        print(key, val)

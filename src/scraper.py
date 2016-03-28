@@ -5,7 +5,7 @@ import io
 import re
 import geocoder
 import json
-
+#Need to Finsih. Getting None Results. 
 """HID is Heath Inspection Data"""
 HID_DOMAIN = 'http://info.kingcounty.gov'
 HID_PATH = '/health/ehs/foodsafety/inspections/Results.aspx'
@@ -123,7 +123,7 @@ def extract_score_data(el):
     return data
 
 
-def generate_results(test=False, count=10):
+def generate_results(test=False, count=10): #TODO Think this is where it is broken.
     kwargs = {'Inspection_Start': '3/3/2013',
     'Inspection_End': '3/3/2016', 
     'Zip_Code': '98125'}

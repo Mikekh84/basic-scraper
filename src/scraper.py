@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 import sys
 import io
 import re
+import geocoder
+import json
 
 """HID is Heath Inspection Data"""
 HID_DOMAIN = 'http://info.kingcounty.gov'
@@ -25,6 +27,7 @@ HID_PARAMS = {
     'Fuzzy_Search': 'N',
     'Sort': 'B', }
 
+
 def get_HID_page(**kwargs):
     url = HID_DOMAIN + HID_PATH
     params = HID_PARAMS.copy()
@@ -35,22 +38,27 @@ def get_HID_page(**kwargs):
     resp.raise_for_status()
     return resp.content, resp.encoding
 
+
 def write_file(text, filename):
     with io.open(filename, 'wb') as f:
         f.write(data)
+
 
 def load_HID_page(filename):
     with io.open(filename, 'rb') as data:
         encoded_data = data.read()
     return encoded_data, 'utf-8'
 
+
 def parse_source(html, encoding='utf-8'):
     parsed_data = BeautifulSoup(html, 'html5lib', from_encoding=encoding)
     return parsed_data
 
+
 def extract_data_listings(html):
     id_finder = re.compile(r'PR[\d]+~')
     return html.find_all('div', id=id_finder)
+
 
 def has_two_tds(el):
     is_tr = el.name == 'tr'
@@ -58,12 +66,14 @@ def has_two_tds(el):
     has_two = len(td_childern) == 2
     return is_tr and has_two
 
+
 def clean_data(td):
     data = td.string
     try:
         return data.strip('\n:-')
     except AttributeError:
         return u''
+
 
 def extract_restaurant_metadata(el):
     metadata_rows = el.find('tbody').find_all(
@@ -77,6 +87,7 @@ def extract_restaurant_metadata(el):
         rdata.setdefault(current_label, []).append(clean_data(val_cell))
     return rdata
 
+
 def is_inspection_row(el):
     is_tr = el.name == 'tr'
     if not is_tr:
@@ -87,6 +98,7 @@ def is_inspection_row(el):
     contains_word = 'inspection' in this_text
     does_not_start = not this_text.startswith('inspection')
     return is_tr and has_four and contains_word and does_not_start
+
 
 def extract_score_data(el):
     inspection_rows = el.find_all(is_inspection_row)
@@ -102,7 +114,7 @@ def extract_score_data(el):
             total += intval
             high_score = intval if intval > high_score else high_score
     if samples:
-        average = total/float(samples)
+        average = total / float(samples)
     data = {
         u'Average Score': average,
         u'High Score': high_score,
@@ -110,21 +122,52 @@ def extract_score_data(el):
     }
     return data
 
-if __name__ == '__main__':
-    kwargs = {
-    'Inspection_Start': '3/3/2013',
-    'Inspection_End': '3/3/2016',
-    'Zip_Code': '98125'
-    }
-    if len(sys.argv) > 1 and sys.argv[1] == 'test':
-        data, encoding = load_HID_page('inspection_page.html')
+
+def generate_results(test=False, count=10):
+    kwargs = {'Inspection_Start': '3/3/2013',
+    'Inspection_End': '3/3/2016', 
+    'Zip_Code': '98125'}
+    if test:
+        html, encoding = load_HID_page('inspection_page.html')
     else:
-        data, encoding = get_HID_page(**kwargs)
-    doc = parse_source(data, encoding)
+        html, encoding = get_HID_page(**kwargs)
+    doc = parse_source(html, encoding)
     listings = extract_data_listings(doc)
-    for listing in listings:
-      metadata = extract_restaurant_metadata(listing)
-      inspection_rows = listing.find_all(is_inspection_row)
-      score_data = extract_score_data(listing)
-      for key, val in score_data.items():
-        print(key, val)
+    for listing in listings[:count]:
+        metadata = extract_restaurant_metadata(listing)
+        score_data = extract_score_data(listing)
+        metadata.update(score_data)
+        yield metadata
+
+def get_geojson(result):
+    address = " ".join(result.get('Address', ''))
+    if not address:
+        return None
+    geocoded = geocoder.google(address)
+    geojson = geocoded.geojson
+    inspection_data = {}
+    use_keys = (
+        'Business_Name', 'Average Score', 'Total Inspections',
+        'High Score', 'Address',)
+    for key, val in result.items():
+        if key not in use_keys:
+            continue
+        if isinstance(val, list):
+            val = "".join(val)
+        inspection_data[key] = val
+    new_address = geojson['properties'].get('address')
+    if new_address:
+        inspection_data['Address'] = new_address
+    geojson['properties'] = inspection_data
+    return geojson
+
+if __name__ == '__main__':
+    import pprint
+    test = len(sys.argv) > 1 and sys.argv[1] == 'test'
+    total_result = {'type': 'FeatureCollection', 'features': []}
+    for result in generate_results(test):
+        geo_result = get_geojson(result)
+        pprint.pprint(geo_result)
+        total_result['features'].append(geo_result)
+    with open('my_map.json', 'w') as fh:
+        json.dump(total_result, fh)
